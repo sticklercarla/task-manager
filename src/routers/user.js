@@ -3,6 +3,8 @@ const User = require('../models/user')
 const auth = require('../middleware/auth')
 const router = new express.Router()
 const multer = require('multer')
+const sharp = require('sharp')
+const { sendWelcomeEmail, sendCancelationEmail } = require('../emails/account')
 
 
 router.post('/users', async (req, res) => {
@@ -10,18 +12,12 @@ router.post('/users', async (req, res) => {
 
     try {
         await user.save()
+        sendWelcomeEmail(user.email, user.name)
         const token = await user.generateAuthToken()
         res.status(201).send({ user, token })
     } catch (e) {
         res.status(400).send(e)
     }
-
-    // user.save().then(() => {
-    //     res.status(201).send(user)
-    // }).catch((e) => {
-    //     res.status(400).send(e)
-    // })
-  
 })
 
 router.post('/users/login', async (req, res) => {
@@ -60,12 +56,6 @@ router.post('/users/logoutAll', auth, async (req, res) => {
 
 router.get('/users/me', auth, async (req, res) => {
     res.send(req.user)
-    // try {
-    //     const users = await User.find({})
-    //     res.send(users)
-    // } catch (e) {
-    //     res.status(500).send()
-    // }
 })
 
 // -------------Shouldnt beable to get a user by ID-----------
@@ -124,14 +114,8 @@ router.patch('/users/me', auth, async (req, res) => {
 
 router.delete('/users/me', auth, async (req, res) => {
     try {
-        // ---don't need this cus we get user from auth
-        // const user = await User.findByIdAndDelete(req.user._id)
-
-        // if (!user) {
-        //     return res.status(404).send()
-        // }
-
         await req.user.remove()
+        sendCancelationEmail(req.user.email, req.user.name)
         res.send(req.user)
     } catch (e) {
         res.status(500).send()
@@ -151,7 +135,8 @@ const upload = multer({
 })
 
 router.post('/users/me/avatar', auth, upload.single('avatar'), async (req, res) => {
-    req.user.avatar = req.file.buffer
+    const buffer = await sharp(req.file.buffer).resize({ width: 250, height: 250 }).png().toBuffer()
+    req.user.avatar = buffer
     await req.user.save()
     res.send()
 }, (error, req, res, next) => {
@@ -171,7 +156,7 @@ router.get('/users/:id/avatar', async (req, res) => {
             throw new Error
         }
 
-        res.set('Content-Type', 'image/jpg')
+        res.set('Content-Type', 'image/png')
         res.send(user.avatar)
     } catch (e) {
         res.status(404).send()
